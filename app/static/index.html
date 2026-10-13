@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>宝安区政策问答 RAG 机器人</title>
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --card: #ffffff;
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --text: #1f2937;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --accent: #f59e0b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Microsoft YaHei", "PingFang SC", -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 18px; font-weight: 600; }
+    header .badge {
+      background: #eef2ff; color: var(--primary);
+      font-size: 12px; padding: 3px 10px; border-radius: 999px;
+    }
+    #chat {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      max-width: 860px;
+      width: 100%;
+      margin: 0 auto;
+    }
+    .msg { display: flex; flex-direction: column; max-width: 100%; }
+    .msg.user { align-items: flex-end; }
+    .msg.assistant { align-items: flex-start; }
+    .bubble {
+      padding: 12px 16px;
+      border-radius: 12px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 15px;
+    }
+    .msg.user .bubble { background: var(--primary); color: #fff; border-bottom-right-radius: 4px; }
+    .msg.assistant .bubble { background: var(--card); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    .sources { margin-top: 8px; display: flex; flex-direction: column; gap: 6px; width: 100%; }
+    .src-card {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 13px;
+    }
+    .src-card .src-title { font-weight: 600; color: #92400e; margin-bottom: 4px; display: flex; gap: 8px; align-items: baseline; }
+    .src-card .src-score { color: var(--accent); font-weight: 700; font-size: 12px; white-space: nowrap; }
+    .src-card .src-q { color: #57534e; margin-bottom: 4px; }
+    .src-card .src-a { color: #44403c; }
+    details summary { cursor: pointer; color: var(--muted); font-size: 13px; user-select: none; }
+    .footer {
+      border-top: 1px solid var(--border);
+      background: var(--card);
+      padding: 14px 24px;
+    }
+    .input-row { display: flex; gap: 10px; max-width: 860px; margin: 0 auto; }
+    #question {
+      flex: 1;
+      padding: 12px 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-size: 15px;
+      outline: none;
+      resize: none;
+      font-family: inherit;
+    }
+    #question:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+    #send {
+      background: var(--primary);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 0 24px;
+      font-size: 15px;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    #send:hover { background: var(--primary-dark); }
+    #send:disabled { background: #93c5fd; cursor: not-allowed; }
+    .typing { color: var(--muted); font-size: 14px; font-style: italic; padding: 4px 0; }
+    .hint { text-align: center; color: var(--muted); font-size: 13px; margin: 20px 0; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>宝安区政策问答 RAG 机器人</h1>
+    <span class="badge">RAG · Milvus + bge-m3 + deepseek-r1</span>
+  </header>
+
+  <div id="chat">
+    <div class="hint">向我提问宝安区相关政策，例如：中小企业技改有什么支持政策？</div>
+  </div>
+
+  <div class="footer">
+    <div class="input-row">
+      <textarea id="question" rows="1" placeholder="请输入您想咨询的政策问题，回车发送"></textarea>
+      <button id="send" onclick="send()">发送</button>
+    </div>
+  </div>
+
+  <script>
+    const chat = document.getElementById('chat');
+    const input = document.getElementById('question');
+    const sendBtn = document.getElementById('send');
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        send();
+      }
+    });
+
+    function addMsg(role, text) {
+      const wrap = document.createElement('div');
+      wrap.className = 'msg ' + role;
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      bubble.textContent = text;
+      wrap.appendChild(bubble);
+      chat.appendChild(wrap);
+      chat.scrollTop = chat.scrollHeight;
+      return wrap;
+    }
+
+    function addSources(sources) {
+      if (!sources || sources.length === 0) return;
+      const box = document.createElement('div');
+      box.className = 'sources';
+      const det = document.createElement('details');
+      const sum = document.createElement('summary');
+      sum.textContent = '📚 参考内容（' + sources.length + ' 条）';
+      det.appendChild(sum);
+
+      sources.forEach((s) => {
+        const card = document.createElement('div');
+        card.className = 'src-card';
+        card.innerHTML =
+          '<div class="src-title"><span>#' + s.id + '</span><span class="src-score">相似度 ' + s.score + '</span></div>' +
+          '<div class="src-q">❓ ' + escapeHtml(s.question) + '</div>' +
+          '<div class="src-a">💡 ' + escapeHtml(s.answer) + '</div>';
+        det.appendChild(card);
+      });
+
+      box.appendChild(det);
+      chat.appendChild(box);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    async function send() {
+      const q = input.value.trim();
+      if (!q) return;
+      addMsg('user', q);
+      input.value = '';
+      sendBtn.disabled = true;
+
+      const typing = document.createElement('div');
+      typing.className = 'typing';
+      typing.textContent = '正在检索并生成回答…';
+      chat.appendChild(typing);
+      chat.scrollTop = chat.scrollHeight;
+
+      try {
+        const resp = await fetch('/api/ask', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ question: q }),
+        });
+        const data = await resp.json();
+        typing.remove();
+        addMsg('assistant', data.answer);
+        addSources(data.sources);
+      } catch (err) {
+        typing.remove();
+        addMsg('assistant', '请求失败：' + err.message);
+      } finally {
+        sendBtn.disabled = false;
+        input.focus();
+      }
+    }
+  </script>
+</body>
+</html>

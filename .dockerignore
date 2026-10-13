@@ -1,0 +1,12 @@
+# Git
+.git
+.gitignore
+*.pyc
+__pycache__/
+
+# 向量化批次缓存（体积大，不纳入镜像/仓库）
+data/.embed_cache/
+
+# 本地构建产物
+*.log
+.DS_Store

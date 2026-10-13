@@ -1,0 +1,37 @@
+# 宝安区政策问答 RAG 机器人 — 容器编排
+# 依赖本机已运行（或同网络内）的 Milvus 与 Ollama 服务。
+# 也可用下方注释掉的 milvus-standalone / ollama 服务段自行拉起完整环境。
+services:
+  app:
+    build: .
+    container_name: rag-policy-qa
+    ports:
+      - "8000:8000"
+    environment:
+      # 容器内访问宿主机服务：用 host.docker.internal（Windows/Mac）
+      - MILVUS_HOST=host.docker.internal
+      - MILVUS_PORT=19530
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - EMBED_MODEL=bge-m3:latest
+      - LLM_MODEL=deepseek-r1:1.5b
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # ---- 如需一键拉起完整环境，取消以下注释 ----
+  # milvus:
+  #   image: milvusdb/milvus:v2.6.1
+  #   command: ["milvus", "run", "standalone"]
+  #   ports:
+  #     - "19530:19530"
+  #     - "9091:9091"
+  #   environment:
+  #     - ETCD_ENDPOINTS=etcd:2379
+  #     - MINIO_ADDRESS=minio:9000
+  #
+  # ollama:
+  #   image: ollama/ollama:latest
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_data:/root/.ollama
