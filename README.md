@@ -186,3 +186,12 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000
 | `LLM_TIMEOUT` | — | 120 | 生成超时（秒） |
 
 > Docker 内访问宿主机服务使用 `host.docker.internal`，已通过环境变量注入（见 `docker-compose.yml`）。
+
+## 八、CI/CD（GitHub Actions）
+
+推送到 `main`、提交 Pull Request 或手动运行时，工作流会使用 Python 3.11 安装依赖、检查语法并运行无需外部服务的单元测试，随后构建 Docker 镜像并验证容器首页可以访问。仅在推送到 `main` 且检查通过后，工作流使用 `GITHUB_TOKEN` 将镜像发布到 GitHub Container Registry：
+
+- `ghcr.io/<仓库所有者>/policy_qa_robot:latest`
+- `ghcr.io/<仓库所有者>/policy_qa_robot:sha-<完整提交 SHA>`
+
+镜像名中的仓库所有者会转换为小写。首次发布可能需要在仓库设置中允许 GitHub Actions 写入 Packages；私有镜像拉取需要有权限的账号登录 GHCR。此流程交付镜像，不会自动更新服务器：运行镜像仍需可访问已建好索引的 Milvus 和已准备好模型的 Ollama。单元测试使用模拟对象，容器冒烟测试只验证应用启动与首页，不覆盖真实检索和模型推理。
